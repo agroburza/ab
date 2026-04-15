@@ -1,0 +1,30 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Expo CLI
+        run: npm install -g expo-cli eas-cli
+
+      - name: Login to Expo
+        run: npx expo login -u YOUR_EXPO_USERNAME -p YOUR_EXPO_PASSWORD
+
+      - name: Build APK
+        run: npx eas build --platform android --profile preview --non-interactive
