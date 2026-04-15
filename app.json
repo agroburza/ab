@@ -32,10 +32,11 @@
       "favicon": "./assets/favicon.png"
     },
 
-    "description": "ab.hr",
-
-"extra": {
-  "eas": {
-    "projectId": "b4a8f471-06dc-4ea9-87d0-3f3137a4dc15"
+        "description": "ab.hr",
+    "extra": {
+      "eas": {
+        "projectId": "b4a8f471-06dc-4ea9-87d0-3f3137a4dc15"
+      }
+    }
   }
 }
