@@ -25,6 +25,11 @@ jobs:
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
+      - name: Link Expo project
+        run: npx eas project:link --id b4a8f471-06dc-4ea9-87d0-3f3137a4dc15
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
       - name: Build Android APK
         run: npx eas build --platform android --profile preview --non-interactive
         env:
