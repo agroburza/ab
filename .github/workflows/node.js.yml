@@ -18,19 +18,10 @@ jobs:
 
       - run: npm install
 
-      - run: npm install -g expo-cli eas-cli
-
-      - name: Expo auth check
-        run: npx expo whoami
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-
-      - name: Link Expo project
-        run: npx eas project:link --id b4a8f471-06dc-4ea9-87d0-3f3137a4dc15
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      - run: npm install -g eas-cli
 
       - name: Build Android APK
-        run: npx eas build --platform android --profile preview --non-interactive
+        run: |
+          npx eas build --platform android --profile preview --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
