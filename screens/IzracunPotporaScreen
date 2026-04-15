@@ -1,0 +1,888 @@
+import React, { useMemo, useState } from 'react';
+import {
+  Alert,
+  Modal,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import {
+  POCETNE_VRIJEDNOSTI,
+  SEKCIJE_POTPORA,
+  dohvatiTarifu,
+  formatEur,
+  formatPostotak,
+  formatTarifa,
+  izracunajSvePotpore,
+  uBroj,
+} from '../utils/izracunPotporaUtils';
+
+const STORAGE_KEY = 'ab_izracun_poticaja_spremljeni';
+
+function BrojcanoPolje({ label, value, onChangeText, placeholder, jedinica = '' }) {
+  return (
+    <View style={styles.redWrap}>
+      <Text style={styles.redLabel}>{label}</Text>
+      <View style={styles.inputWrap}>
+        <TextInput
+          style={styles.input}
+          value={value}
+          onChangeText={onChangeText}
+          placeholder={placeholder || '0'}
+          placeholderTextColor="#94a3b8"
+          keyboardType="decimal-pad"
+        />
+        {!!jedinica ? <Text style={styles.inputBadge}>{jedinica}</Text> : null}
+      </View>
+    </View>
+  );
+}
+
+function RedPotpore({
+  label,
+  vrijednost,
+  onChange,
+  tarifa,
+  iznos,
+  jedinicaLabel,
+}) {
+  return (
+    <View style={styles.redKartica}>
+      <Text style={styles.redNaziv}>{label}</Text>
+
+      <View style={styles.redInputWrap}>
+        <TextInput
+          style={styles.redInput}
+          value={vrijednost}
+          onChangeText={onChange}
+          placeholder="0"
+          placeholderTextColor="#94a3b8"
+          keyboardType="decimal-pad"
+        />
+
+        {!!jedinicaLabel ? (
+          <View style={styles.tarifaBadge}>
+            <Text style={styles.tarifaBadgeText}>{jedinicaLabel}</Text>
+          </View>
+        ) : null}
+      </View>
+
+      {tarifa > 0 ? (
+        <View style={styles.redFooter}>
+          <Text style={styles.redTarifaText}>
+            {formatTarifa(tarifa, jedinicaLabel === 'jed.' ? '€/jed.' : jedinicaLabel === 'm' ? '€/m' : '€/ha')}
+          </Text>
+          <Text style={styles.redIznosText}>{iznos}</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function SelectTarifa({ label, onPress, aktivnaLabel }) {
+  return (
+    <View style={styles.redWrap}>
+      <Text style={styles.redLabel}>{label}</Text>
+      <TouchableOpacity
+        style={styles.selectButton}
+        onPress={onPress}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.selectText}>{aktivnaLabel || '— Odaberi —'}</Text>
+        <Text style={styles.selectArrow}>˅</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function Sekcija({ naslov, boja, otvorena, onToggle, ukupno, children }) {
+  return (
+    <View style={styles.sekcijaWrap}>
+      <TouchableOpacity
+        style={[styles.sekcijaHeader, { backgroundColor: boja }]}
+        onPress={onToggle}
+        activeOpacity={0.9}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sekcijaNaslov}>{naslov}</Text>
+          {!!ukupno ? <Text style={styles.sekcijaUkupno}>Ukupno: {ukupno}</Text> : null}
+        </View>
+        <Text style={styles.sekcijaArrow}>{otvorena ? '−' : '+'}</Text>
+      </TouchableOpacity>
+
+      {otvorena ? <View style={styles.sekcijaBody}>{children}</View> : null}
+    </View>
+  );
+}
+
+function GrupaPotpora({ naslov, children }) {
+  return (
+    <View style={styles.grupaWrap}>
+      <Text style={styles.grupaNaslov}>{naslov}</Text>
+      {children}
+    </View>
+  );
+}
+
+function pronadiSekcijuZaPolje(poljeKey) {
+  const sekcija = SEKCIJE_POTPORA.find((item) =>
+    item.polja.some((p) => p.key === poljeKey)
+  );
+  return sekcija?.key || '';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function formatVrijednostZaPrikaz(vrijednost, jedinica) {
+  const broj = uBroj(vrijednost);
+  if (!broj) return '—';
+  return `${new Intl.NumberFormat('hr-HR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(broj)} ${jedinica || ''}`.trim();
+}
+
+function buildHtmlReport(vrijednosti, rezultat) {
+  const datum = new Date().toLocaleString('hr-HR');
+  const sekcijeHtml = SEKCIJE_POTPORA.map((sekcija) => {
+    const aktivnaPolja = rezultat.sekcije[sekcija.key]?.polja.filter(
+      (polje) =>
+        !polje.unosTarife &&
+        (uBroj(vrijednosti[polje.key]) > 0 || uBroj(polje.iznos) > 0)
+    ) || [];
+
+    if (!aktivnaPolja.length) return '';
+
+    const rows = aktivnaPolja
+      .map(
+        (polje) => `
+          <tr>
+            <td>${escapeHtml(polje.sifra || '—')}</td>
+            <td>${escapeHtml(polje.naziv)}</td>
+            <td>${escapeHtml(formatVrijednostZaPrikaz(vrijednosti[polje.key], polje.jedinica))}</td>
+            <td>${escapeHtml(formatTarifa(polje.tarifaAktivna || 0, polje.tarifaJedinica || '€/ha'))}</td>
+            <td>${escapeHtml(formatEur(polje.iznos || 0))}</td>
+          </tr>
+        `
+      )
+      .join('');
+
+    return `
+      <div class="section">
+        <h2>${escapeHtml(sekcija.naslov)}</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Šifra</th>
+              <th>Mjera</th>
+              <th>Unos</th>
+              <th>Tarifa</th>
+              <th>Iznos</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="subtotal">Ukupno: ${escapeHtml(formatEur(rezultat.sekcije[sekcija.key]?.zbroj || 0))}</div>
+      </div>
+    `;
+  }).join('');
+
+  const osnovniPodaci = [
+    ['Obradiva površina', formatVrijednostZaPrikaz(vrijednosti.obr_ha, 'ha')],
+    ['Granični pojasevi uz vodotokove', formatVrijednostZaPrikaz(vrijednosti.vodotok_m, 'm')],
+    ['Granični pojasevi uz šume', formatVrijednostZaPrikaz(vrijednosti.sume_m, 'm')],
+    ['Jarak', formatVrijednostZaPrikaz(vrijednosti.jarak_m, 'm')],
+    ['Šumarak', formatVrijednostZaPrikaz(vrijednosti.sumarak_m2, 'm²')],
+    ['Ugar', formatVrijednostZaPrikaz(vrijednosti.ugar_ha, 'ha')],
+    ['Leguminoze', formatVrijednostZaPrikaz(vrijednosti.legum_ha, 'ha')],
+  ]
+    .map(
+      ([label, val]) => `
+        <tr>
+          <td>${escapeHtml(label)}</td>
+          <td>${escapeHtml(val)}</td>
+        </tr>
+      `
+    )
+    .join('');
+
+  return `
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
+          h1 { margin: 0 0 8px; font-size: 28px; }
+          .meta { margin-bottom: 20px; color: #475569; font-size: 12px; }
+          .summary {
+            background: #7FA52A;
+            color: white;
+            padding: 18px 20px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+          }
+          .summary small { display:block; color:#e4f5bb; margin-bottom:6px; }
+          .summary strong { font-size: 30px; }
+          .section { margin-bottom: 24px; }
+          h2 { font-size: 18px; margin: 0 0 10px; }
+          table { width: 100%; border-collapse: collapse; font-size: 12px; }
+          th, td { border: 1px solid #dbe2ea; padding: 8px; text-align: left; vertical-align: top; }
+          th { background: #f8fafc; }
+          .subtotal { margin-top: 8px; font-weight: bold; text-align: right; }
+          .infoBox {
+            border: 1px solid #e5e7eb;
+            background: #f8fafc;
+            border-radius: 14px;
+            padding: 14px;
+            margin-bottom: 10px;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Izračun poticaja</h1>
+        <div class="meta">Datum izrade: ${escapeHtml(datum)}</div>
+
+        <div class="summary">
+          <small>Ukupni izračun svega</small>
+          <strong>${escapeHtml(formatEur(rezultat.ukupno))}</strong>
+        </div>
+
+        ${sekcijeHtml}
+
+        <div class="section">
+          <h2>Informativne sekcije</h2>
+          <div class="infoBox">
+            <strong>Osnovni podaci</strong>
+            <table style="margin-top:10px;">
+              <tbody>${osnovniPodaci}</tbody>
+            </table>
+          </div>
+
+          <div class="infoBox">
+            <strong>EZP 10%</strong><br />
+            ${escapeHtml(formatPostotak(rezultat.ezpPostotak))}
+          </div>
+
+          <div class="infoBox">
+            <strong>Uvjetovanost</strong><br />
+            ${escapeHtml(formatPostotak(rezultat.uvjetovanostPostotak))}
+          </div>
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+export default function IzracunPotporaScreen({
+  renderTopBar,
+  renderLicenseBanner,
+  onBack,
+}) {
+  const [vrijednosti, setVrijednosti] = useState(POCETNE_VRIJEDNOSTI);
+  const [otvoreneSekcije, setOtvoreneSekcije] = useState({
+    eko: false,
+    koi: false,
+    pvp: false,
+    info: false,
+  });
+
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerTitle, setPickerTitle] = useState('');
+  const [pickerItems, setPickerItems] = useState([]);
+  const [pickerValue, setPickerValue] = useState('');
+  const [pickerOnSelect, setPickerOnSelect] = useState(null);
+  const [spremanje, setSpremanje] = useState(false);
+  const [izvozPdf, setIzvozPdf] = useState(false);
+
+  const rezultat = useMemo(() => izracunajSvePotpore(vrijednosti), [vrijednosti]);
+
+  const promijeniVrijednost = (key, value) => {
+    setVrijednosti((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const toggleSekcija = (key) => {
+    setOtvoreneSekcije((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const otvoriPicker = ({ title, items, value, onSelect }) => {
+    setPickerTitle(title || 'Odaberi');
+    setPickerItems(items || []);
+    setPickerValue(value ?? '');
+    setPickerOnSelect(() => onSelect || null);
+    setPickerVisible(true);
+  };
+
+  const zatvoriPicker = () => {
+    setPickerVisible(false);
+    setPickerTitle('');
+    setPickerItems([]);
+    setPickerValue('');
+    setPickerOnSelect(null);
+  };
+
+  const odaberiPickerStavku = (item) => {
+    if (pickerOnSelect) {
+      pickerOnSelect(item);
+    }
+    zatvoriPicker();
+  };
+
+  const spremiIzracun = async () => {
+    try {
+      setSpremanje(true);
+      const raw = await AsyncStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      const zapis = {
+        id: `izracun-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+        title: `Izračun poticaja ${new Date().toLocaleDateString('hr-HR')}`,
+        vrijednosti,
+        rezultat,
+      };
+      const next = [zapis, ...parsed].slice(0, 20);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      Alert.alert('Spremljeno', 'Izračun je spremljen lokalno u aplikaciji.');
+    } catch (error) {
+      Alert.alert('Greška', 'Spremanje nije uspjelo.');
+    } finally {
+      setSpremanje(false);
+    }
+  };
+
+  const preuzmiPdf = async () => {
+    try {
+      setIzvozPdf(true);
+      const html = buildHtmlReport(vrijednosti, rezultat);
+      const { uri } = await Print.printToFileAsync({
+        html,
+        base64: false,
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Izračun poticaja PDF',
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        Alert.alert('PDF izrađen', `PDF je izrađen: ${uri}`);
+      }
+    } catch (error) {
+      Alert.alert('Greška', 'PDF nije uspješno izrađen.');
+    } finally {
+      setIzvozPdf(false);
+    }
+  };
+
+  const renderPolje = (polje) => {
+    if (polje.unosTarife) {
+      return (
+        <BrojcanoPolje
+          key={polje.key}
+          label={`${polje.sifra ? polje.sifra + ' — ' : ''}${polje.naziv}`}
+          value={vrijednosti[polje.key]}
+          onChangeText={(text) => promijeniVrijednost(polje.key, text)}
+          placeholder="0"
+          jedinica={polje.jedinica}
+        />
+      );
+    }
+
+    if (polje.tarifaTip === 'select') {
+      const aktivnaOpcija = (polje.opcijeTarife || []).find(
+        (item) => item.value === vrijednosti[polje.tarifaSelectKey]
+      );
+
+      return (
+        <View key={polje.key} style={styles.poljeKartica}>
+          <SelectTarifa
+            label={`${polje.sifra ? polje.sifra + ' — ' : ''}${polje.naziv}`}
+            aktivnaLabel={
+              aktivnaOpcija?.label
+                ? `${aktivnaOpcija.label}${
+                    aktivnaOpcija.tarifa
+                      ? ` (${formatTarifa(aktivnaOpcija.tarifa)})`
+                      : ''
+                  }`
+                : '— Odaberi —'
+            }
+            onPress={() => {
+              otvoriPicker({
+                title: `${polje.sifra ? polje.sifra + ' — ' : ''}${polje.naziv}`,
+                items: (polje.opcijeTarife || []).map((item) => ({
+                  value: item.value,
+                  label: item.label,
+                  emoji: '💶',
+                })),
+                value: vrijednosti[polje.tarifaSelectKey],
+                onSelect: (option) => {
+                  promijeniVrijednost(polje.tarifaSelectKey, option?.value ?? '');
+                },
+              });
+            }}
+          />
+
+          <RedPotpore
+            label="Unos"
+            vrijednost={vrijednosti[polje.key]}
+            onChange={(text) => promijeniVrijednost(polje.key, text)}
+            tarifa={Math.round(dohvatiTarifu(polje, vrijednosti) || 0)}
+            iznos={formatEur(
+              rezultat.sekcije[pronadiSekcijuZaPolje(polje.key)]?.polja.find(
+                (p) => p.key === polje.key
+              )?.iznos || 0
+            )}
+            jedinicaLabel={polje.jedinica || ''}
+          />
+        </View>
+      );
+    }
+
+    const sekcijaKey = pronadiSekcijuZaPolje(polje.key);
+    const rezultatPolja = rezultat.sekcije[sekcijaKey]?.polja.find(
+      (p) => p.key === polje.key
+    );
+
+    return (
+      <RedPotpore
+        key={polje.key}
+        label={`${polje.sifra ? polje.sifra + ' — ' : ''}${polje.naziv}`}
+        vrijednost={vrijednosti[polje.key]}
+        onChange={(text) => promijeniVrijednost(polje.key, text)}
+        tarifa={Math.round(rezultatPolja?.tarifaAktivna || 0)}
+        iznos={formatEur(rezultatPolja?.iznos || 0)}
+        jedinicaLabel={polje.jedinica || ''}
+      />
+    );
+  };
+
+  const renderSekcijaPolja = (sekcija) => {
+    if (sekcija.key === 'eko') {
+      const osnovnaPlacanja = ['eko_prih_ha', 'vrijed_prava', 'prerasp', 'mladi'];
+      return (
+        <>
+          <GrupaPotpora naslov="Osnovna plaćanja">
+            {sekcija.polja
+              .filter((p) => osnovnaPlacanja.includes(p.key))
+              .map(renderPolje)}
+          </GrupaPotpora>
+
+          <GrupaPotpora naslov="Eko mjere">
+            {sekcija.polja
+              .filter((p) => !osnovnaPlacanja.includes(p.key))
+              .map(renderPolje)}
+          </GrupaPotpora>
+        </>
+      );
+    }
+
+    return sekcija.polja.map(renderPolje);
+  };
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      {renderTopBar?.('Izracun potpora')}
+      {renderLicenseBanner?.()}
+
+      <View style={styles.screenWrap}>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.heroKartica}>
+            <View style={styles.heroTopRow}>
+              <Text style={styles.heroNaslov}>🌾 Izracun potpora</Text>
+              {onBack ? (
+                <TouchableOpacity
+                  style={styles.nazadGumb}
+                  onPress={onBack}
+                  activeOpacity={0.9}
+                >
+                  <Text style={styles.nazadGumbText}>← Nazad</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <Text style={styles.heroPodnaslov}>
+              Nativna verzija kalkulatora za EKO sheme, KOI, PVP te informativne
+              izracune i provjere uvjeta.
+            </Text>
+
+            <View style={styles.akcijeWrap}>
+              <TouchableOpacity
+                style={[styles.akcijaGumb, styles.akcijaGumbLight]}
+                onPress={spremiIzracun}
+                activeOpacity={0.9}
+                disabled={spremanje}
+              >
+                <Text style={styles.akcijaGumbLightText}>
+                  {spremanje ? 'Spremanje...' : '💾 Spremi izračun'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.akcijaGumb, styles.akcijaGumbDark]}
+                onPress={preuzmiPdf}
+                activeOpacity={0.9}
+                disabled={izvozPdf}
+              >
+                <Text style={styles.akcijaGumbDarkText}>
+                  {izvozPdf ? 'Izrada PDF-a...' : '📄 Preuzmi PDF'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {SEKCIJE_POTPORA.map((sekcija) => (
+            <Sekcija
+              key={sekcija.key}
+              naslov={sekcija.naslov}
+              boja={sekcija.boja}
+              otvorena={otvoreneSekcije[sekcija.key]}
+              onToggle={() => toggleSekcija(sekcija.key)}
+              ukupno={formatEur(rezultat.sekcije[sekcija.key]?.zbroj || 0)}
+            >
+              {renderSekcijaPolja(sekcija)}
+            </Sekcija>
+          ))}
+
+          <Sekcija
+            naslov="Informativne sekcije"
+            boja="#f9fafb"
+            otvorena={otvoreneSekcije.info}
+            onToggle={() => toggleSekcija('info')}
+          >
+            <GrupaPotpora naslov="Osnovni podaci">
+              <BrojcanoPolje label="Obradiva povrsina" value={vrijednosti.obr_ha} onChangeText={(t) => promijeniVrijednost('obr_ha', t)} placeholder="0" jedinica="ha" />
+              <BrojcanoPolje label="Granicni pojasevi uz vodotokove" value={vrijednosti.vodotok_m} onChangeText={(t) => promijeniVrijednost('vodotok_m', t)} placeholder="0" jedinica="m" />
+              <BrojcanoPolje label="Granicni pojasevi uz sume" value={vrijednosti.sume_m} onChangeText={(t) => promijeniVrijednost('sume_m', t)} placeholder="0" jedinica="m" />
+              <BrojcanoPolje label="Jarak" value={vrijednosti.jarak_m} onChangeText={(t) => promijeniVrijednost('jarak_m', t)} placeholder="0" jedinica="m" />
+              <BrojcanoPolje label="Sumarak" value={vrijednosti.sumarak_m2} onChangeText={(t) => promijeniVrijednost('sumarak_m2', t)} placeholder="0" jedinica="m²" />
+              <BrojcanoPolje label="Ugar" value={vrijednosti.ugar_ha} onChangeText={(t) => promijeniVrijednost('ugar_ha', t)} placeholder="0" jedinica="ha" />
+              <BrojcanoPolje label="Leguminoze" value={vrijednosti.legum_ha} onChangeText={(t) => promijeniVrijednost('legum_ha', t)} placeholder="0" jedinica="ha" />
+            </GrupaPotpora>
+
+            <View style={styles.infoKartica}>
+              <Text style={styles.infoNaslov}>EZP 10%</Text>
+              <Text style={styles.infoVrijednost}>{formatPostotak(rezultat.ezpPostotak)}</Text>
+              <Text style={styles.infoOpis}>
+                Formula uključuje vodotokove, šume, jarke, šumarake.
+              </Text>
+            </View>
+
+            <View style={styles.infoKartica}>
+              <Text style={styles.infoNaslov}>Uvjetovanost</Text>
+              <Text style={styles.infoVrijednost}>{formatPostotak(rezultat.uvjetovanostPostotak)}</Text>
+              <Text style={styles.infoOpis}>
+                Informativni izračun uključuje neproizvodne elemente Ugar i Leguminoze.
+              </Text>
+            </View>
+          </Sekcija>
+
+          <View style={styles.bottomSpacer} />
+        </ScrollView>
+
+        <View style={styles.stickyWrap}>
+          <View style={styles.totalKartica}>
+            <Text style={styles.totalLabel}>Ukupni izracun svega</Text>
+            <Text style={styles.totalIznos}>{formatEur(rezultat.ukupno)}</Text>
+          </View>
+        </View>
+      </View>
+
+      <Modal
+        visible={pickerVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={zatvoriPicker}
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable style={styles.modalBackdrop} onPress={zatvoriPicker} />
+          <View style={styles.bottomSheet}>
+            <View style={styles.bottomSheetHandle} />
+            <View style={styles.bottomSheetHeader}>
+              <Text style={styles.bottomSheetTitle}>{pickerTitle}</Text>
+              <TouchableOpacity onPress={zatvoriPicker} activeOpacity={0.8}>
+                <Text style={styles.bottomSheetClose}>✕</Text>
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.bottomSheetList} showsVerticalScrollIndicator={false}>
+              {pickerItems.map((item) => {
+                const selected = item.value === pickerValue;
+                return (
+                  <TouchableOpacity
+                    key={`${item.value}-${item.label}`}
+                    style={[
+                      styles.bottomSheetItem,
+                      selected && styles.bottomSheetItemSelected,
+                    ]}
+                    onPress={() => odaberiPickerStavku(item)}
+                    activeOpacity={0.9}
+                  >
+                    <Text style={styles.bottomSheetItemEmoji}>{item.emoji || '💶'}</Text>
+                    <Text
+                      style={[
+                        styles.bottomSheetItemText,
+                        selected && styles.bottomSheetItemTextSelected,
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                    {selected ? <Text style={styles.bottomSheetCheck}>✓</Text> : null}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: '#f3f5f7' },
+  screenWrap: { flex: 1 },
+  container: { padding: 16, paddingBottom: 140 },
+  heroKartica: {
+    backgroundColor: '#ffffff',
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 8,
+  },
+  heroNaslov: { flex: 1, fontSize: 24, fontWeight: '900', color: '#111827' },
+  heroPodnaslov: { fontSize: 14, lineHeight: 21, color: '#4b5563' },
+  akcijeWrap: { flexDirection: 'row', gap: 10, marginTop: 14, flexWrap: 'wrap' },
+  akcijaGumb: { borderRadius: 14, paddingHorizontal: 14, paddingVertical: 12, borderWidth: 1 },
+  akcijaGumbLight: { backgroundColor: '#eef6df', borderColor: '#d7e7b4' },
+  akcijaGumbDark: { backgroundColor: '#7FA52A', borderColor: '#6d9020' },
+  akcijaGumbLightText: { fontSize: 13, fontWeight: '800', color: '#5b7b17' },
+  akcijaGumbDarkText: { fontSize: 13, fontWeight: '800', color: '#ffffff' },
+  nazadGumb: {
+    backgroundColor: '#eef6df',
+    borderWidth: 1,
+    borderColor: '#d7e7b4',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  nazadGumbText: { fontSize: 13, fontWeight: '800', color: '#5b7b17' },
+  sekcijaWrap: { marginBottom: 14 },
+  sekcijaHeader: {
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#dbe2ea',
+  },
+  sekcijaNaslov: { fontSize: 18, fontWeight: '900', color: '#111827' },
+  sekcijaUkupno: { marginTop: 4, fontSize: 13, fontWeight: '700', color: '#475569' },
+  sekcijaArrow: { fontSize: 28, fontWeight: '700', color: '#334155', marginLeft: 12 },
+  sekcijaBody: {
+    backgroundColor: '#ffffff',
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    padding: 12,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  grupaWrap: { marginBottom: 12 },
+  grupaNaslov: { fontSize: 13, fontWeight: '800', color: '#64748b', marginBottom: 6, marginTop: 4 },
+  poljeKartica: {
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 18,
+    padding: 12,
+    marginBottom: 10,
+  },
+  redWrap: { marginBottom: 10 },
+  redLabel: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 7 },
+  inputWrap: { position: 'relative' },
+  input: {
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dbe2ea',
+    paddingHorizontal: 14,
+    paddingRight: 88,
+    fontSize: 15,
+    color: '#111827',
+  },
+  inputBadge: {
+    position: 'absolute',
+    right: 12,
+    top: 15,
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#5b7b17',
+    backgroundColor: '#eef6df',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  selectButton: {
+    minHeight: 52,
+    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dbe2ea',
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  selectText: { flex: 1, fontSize: 15, fontWeight: '600', color: '#111827' },
+  selectArrow: { fontSize: 24, color: '#6b7280', marginLeft: 12 },
+  infoKartica: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    padding: 14,
+    marginBottom: 10,
+  },
+  infoNaslov: { fontSize: 16, fontWeight: '900', color: '#111827', marginBottom: 6 },
+  infoVrijednost: { fontSize: 22, fontWeight: '900', color: '#7FA52A', marginBottom: 6 },
+  infoOpis: { fontSize: 13, lineHeight: 19, color: '#6b7280' },
+  redKartica: {
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#dbe2ea',
+  },
+  redNaziv: { fontSize: 14, fontWeight: '800', color: '#1f2937', marginBottom: 10, lineHeight: 20 },
+  redInputWrap: { position: 'relative' },
+  redInput: {
+    height: 54,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#cfd8e3',
+    paddingHorizontal: 14,
+    paddingRight: 80,
+    fontSize: 16,
+    color: '#111827',
+    backgroundColor: '#fff',
+  },
+  tarifaBadge: {
+    position: 'absolute',
+    right: 10,
+    top: 11,
+    backgroundColor: '#eef6df',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#d7e7b4',
+  },
+  tarifaBadgeText: { fontSize: 11, fontWeight: '800', color: '#5b7b17' },
+  redFooter: {
+    marginTop: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  redTarifaText: { fontSize: 11, color: '#94a3b8', fontWeight: '700' },
+  redIznosText: { fontSize: 16, fontWeight: '900', color: '#111827' },
+  stickyWrap: { position: 'absolute', left: 16, right: 16, bottom: 12 },
+  totalKartica: {
+    backgroundColor: '#7FA52A',
+    borderRadius: 22,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#6d9020',
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 5,
+  },
+  totalLabel: { fontSize: 14, color: '#d9f99d', marginBottom: 6 },
+  totalIznos: { fontSize: 32, fontWeight: '900', color: '#ffffff' },
+  bottomSpacer: { height: 10 },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(15, 23, 42, 0.32)',
+  },
+  modalBackdrop: { flex: 1 },
+  bottomSheet: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingTop: 10,
+    paddingBottom: 24,
+    maxHeight: '76%',
+    borderTopWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  bottomSheetHandle: {
+    width: 74,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: '#d1d5db',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  bottomSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 14,
+  },
+  bottomSheetTitle: { flex: 1, fontSize: 22, fontWeight: '800', color: '#111827' },
+  bottomSheetClose: { fontSize: 30, color: '#6b7280', marginLeft: 12, lineHeight: 32 },
+  bottomSheetList: { paddingHorizontal: 16, paddingBottom: 10 },
+  bottomSheetItem: {
+    minHeight: 64,
+    borderRadius: 18,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingHorizontal: 16,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  bottomSheetItemSelected: {
+    backgroundColor: '#eef6df',
+    borderWidth: 2,
+    borderColor: '#7FA52A',
+  },
+  bottomSheetItemEmoji: { fontSize: 22, marginRight: 14 },
+  bottomSheetItemText: { flex: 1, fontSize: 15, fontWeight: '700', color: '#111827' },
+  bottomSheetItemTextSelected: { color: '#5e7a16' },
+  bottomSheetCheck: { fontSize: 22, color: '#7FA52A', fontWeight: '800', marginLeft: 10 },
+});

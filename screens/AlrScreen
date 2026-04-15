@@ -1,0 +1,935 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  FlatList,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import {
+  ALR_STORAGE_KEY,
+  CALENDAR,
+  CROP_NAMES,
+  DEFAULT_ALR_FORM,
+  REGION_NAMES,
+  buildAlrPdfHtml,
+  calculateALR,
+  formatNutrientRows,
+  makeSavedCalculation,
+  niceCrop,
+  planWithTotals,
+  regionLabel,
+} from '../utils/AlrUtils';
+
+const FIELD_CROPS = Object.entries(CROP_NAMES).map(([value, label]) => ({
+  value,
+  label,
+}));
+const REGIONS = Object.entries(REGION_NAMES).map(([value, label]) => ({
+  value,
+  label,
+}));
+const CLASSES = ['A', 'B', 'C', 'D', 'E'].map((cls) => ({ value: cls, label: cls }));
+const SOILS = [
+  { value: 'lagano', label: 'Lagano' },
+  { value: 'srednje', label: 'Srednje' },
+  { value: 'tesko', label: 'Teško' },
+];
+const PREDCROPS = [
+  { value: 'ne-leguminoza', label: 'Ne-leguminoza' },
+  { value: 'leguminoza', label: 'Leguminoza' },
+];
+const STRAW_OPTIONS = [
+  { value: 'zaorana', label: 'Inkorporirana u tlo' },
+  { value: 'odnijeta', label: 'Odnijeta sa polja' },
+];
+const MODE_OPTIONS = [
+  { value: 'klase', label: 'Klase A–E' },
+  { value: 'lab', label: 'Laboratorij' },
+];
+
+function InputField({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType = 'default',
+}) {
+  return (
+    <View style={styles.fieldBlock}>
+      <Text style={styles.label}>{label}</Text>
+      <TextInput
+        style={styles.input}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#94a3b8"
+        keyboardType={keyboardType}
+      />
+    </View>
+  );
+}
+
+function SelectField({ label, value, placeholder, onPress }) {
+  return (
+    <View style={styles.fieldBlock}>
+      <Text style={styles.label}>{label}</Text>
+      <TouchableOpacity style={styles.selectField} onPress={onPress} activeOpacity={0.85}>
+        <Text style={value ? styles.selectValue : styles.selectPlaceholder} numberOfLines={1}>
+          {value || placeholder || 'Odaberi'}
+        </Text>
+        <Text style={styles.selectArrow}>⌄</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function SelectModal({ visible, title, items, onClose, onSelect, selectedValue }) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={onClose} />
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>{title}</Text>
+          <ScrollView style={styles.modalList} showsVerticalScrollIndicator={false}>
+            {(items || []).map((item) => {
+              const active = item.value === selectedValue;
+              return (
+                <TouchableOpacity
+                  key={item.value}
+                  style={[styles.modalOption, active && styles.modalOptionActive]}
+                  onPress={() => {
+                    onSelect(item.value);
+                    onClose();
+                  }}>
+                  <Text style={[styles.modalOptionText, active && styles.modalOptionTextActive]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          <TouchableOpacity style={styles.modalCloseBtn} onPress={onClose}>
+            <Text style={styles.modalCloseBtnText}>Zatvori</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function SectionCard({ title, subtitle, children }) {
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{title}</Text>
+      {subtitle ? <Text style={styles.cardSubtitle}>{subtitle}</Text> : null}
+      {children}
+    </View>
+  );
+}
+
+function ResultTable({ rows }) {
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>Ciljevi hraniva</Text>
+      <View style={styles.tableHeader}>
+        <Text style={[styles.th, { flex: 1.1 }]}>Hranivo</Text>
+        <Text style={styles.th}>kg/ha</Text>
+        <Text style={styles.th}>Ukupno</Text>
+      </View>
+      {rows.map((row) => (
+        <View key={row.nutrient} style={styles.tableRow}>
+          <Text style={[styles.td, { flex: 1.1 }]}>{row.nutrient}</Text>
+          <Text style={styles.td}>{Number(row.perHa).toFixed(1)}</Text>
+          <Text style={styles.td}>{Number(row.total).toFixed(1)}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function PlanCard({ title, items, area }) {
+  const rows = planWithTotals(items, area);
+  return (
+    <View style={styles.card}>
+      <Text style={styles.cardTitle}>{title}</Text>
+      {rows.length ? (
+        rows.map((item) => (
+          <View key={`${title}_${item.id}`} style={styles.planRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.planName}>{item.name}</Text>
+              <Text style={styles.planMeta}>{item.rateKgHa} kg/ha</Text>
+            </View>
+            <Text style={styles.planTotal}>{item.totalKg} kg</Text>
+          </View>
+        ))
+      ) : (
+        <Text style={styles.muted}>—</Text>
+      )}
+    </View>
+  );
+}
+
+function SavedCard({ item, onLoad, onExportPdf, onDelete }) {
+  return (
+    <View style={styles.savedCard}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.savedTitle}>{item.title}</Text>
+        <Text style={styles.savedMeta}>
+          {new Date(item.createdAt).toLocaleString('hr-HR')}
+        </Text>
+      </View>
+      <View style={styles.savedActions}>
+        <TouchableOpacity style={styles.smallBtn} onPress={() => onLoad(item)}>
+          <Text style={styles.smallBtnText}>Učitaj</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.smallBtnGhost}
+          onPress={() => onExportPdf(item)}>
+          <Text style={styles.smallBtnGhostText}>PDF</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.smallBtnGhost}
+          onPress={() => onDelete(item.id)}>
+          <Text style={styles.smallBtnGhostText}>Obriši</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+export default function AlrScreen({ onBack }) {
+  const [form, setForm] = useState(DEFAULT_ALR_FORM);
+  const [calculation, setCalculation] = useState(null);
+  const [savedItems, setSavedItems] = useState([]);
+  const [activeTab, setActiveTab] = useState('unos');
+  const [busy, setBusy] = useState(false);
+  const [selectConfig, setSelectConfig] = useState({
+    visible: false,
+    title: '',
+    items: [],
+    field: '',
+  });
+
+  useEffect(() => {
+    loadSaved();
+  }, []);
+
+  const nutrientRows = useMemo(() => {
+    return calculation ? formatNutrientRows(calculation) : [];
+  }, [calculation]);
+
+  const updateField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const optionLabel = (items, value) => items.find((item) => item.value === value)?.label || '';
+
+  const openSelect = (field, title, items) => {
+    setSelectConfig({ visible: true, title, items, field });
+  };
+
+  const closeSelect = () => {
+    setSelectConfig({ visible: false, title: '', items: [], field: '' });
+  };
+
+  const handleSelectValue = (value) => {
+    if (!selectConfig.field) return;
+    updateField(selectConfig.field, value);
+  };
+
+  const loadSaved = async () => {
+    try {
+      const raw = await AsyncStorage.getItem(ALR_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      setSavedItems(Array.isArray(parsed) ? parsed : []);
+    } catch (error) {
+      console.warn('ALR loadSaved error', error);
+    }
+  };
+
+  const persistSaved = async (next) => {
+    setSavedItems(next);
+    await AsyncStorage.setItem(ALR_STORAGE_KEY, JSON.stringify(next));
+  };
+
+  const handleCalculate = () => {
+    const next = calculateALR(form);
+    if (next.error) {
+      Alert.alert('ALR kalkulator', next.error);
+      return;
+    }
+    setCalculation(next);
+    setActiveTab('rezultat');
+  };
+
+  const handleReset = () => {
+    setForm(DEFAULT_ALR_FORM);
+    setCalculation(null);
+    setActiveTab('unos');
+  };
+
+  const handleSave = async () => {
+    if (!calculation) {
+      Alert.alert('ALR kalkulator', 'Prvo izračunajte.');
+      return;
+    }
+    const saved = makeSavedCalculation(calculation);
+    const next = [saved, ...savedItems].slice(0, 30);
+    await persistSaved(next);
+    Alert.alert('ALR kalkulator', 'Izračun je spremljen.');
+    setActiveTab('spremljeno');
+  };
+
+  const exportPdf = async (savedItem) => {
+    try {
+      setBusy(true);
+      const html = buildAlrPdfHtml(savedItem);
+      const { uri } = await Print.printToFileAsync({ html });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'ALR PDF',
+          UTI: 'com.adobe.pdf',
+        });
+      } else {
+        Alert.alert('ALR kalkulator', 'PDF je generiran.');
+      }
+    } catch (error) {
+      console.warn('ALR exportPdf error', error);
+      Alert.alert('ALR kalkulator', 'Greška kod generiranja PDF-a.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCurrentPdf = async () => {
+    if (!calculation) {
+      Alert.alert('ALR kalkulator', 'Prvo izračunajte.');
+      return;
+    }
+    await exportPdf(makeSavedCalculation(calculation));
+  };
+
+  const handleLoadSaved = (item) => {
+    setForm(item.calculation.input);
+    setCalculation(item.calculation);
+    setActiveTab('rezultat');
+  };
+
+  const handleDeleteSaved = (id) => {
+    Alert.alert('Brisanje', 'Obrisati spremljeni izračun?', [
+      { text: 'Odustani', style: 'cancel' },
+      {
+        text: 'Obriši',
+        style: 'destructive',
+        onPress: async () => {
+          const next = savedItems.filter((item) => item.id !== id);
+          await persistSaved(next);
+        },
+      },
+    ]);
+  };
+
+  const calendarPreview = useMemo(() => {
+    const region = CALENDAR[form.regija] || {};
+    return region[form.kultura] || [];
+  }, [form.kultura, form.regija]);
+
+  return (
+    <SafeAreaView style={styles.safe}>
+      <SelectModal
+        visible={selectConfig.visible}
+        title={selectConfig.title}
+        items={selectConfig.items}
+        selectedValue={form[selectConfig.field]}
+        onClose={closeSelect}
+        onSelect={handleSelectValue}
+      />
+
+      <View style={styles.topCard}>
+        <View style={styles.headerRow}>
+          <TouchableOpacity
+            style={styles.headerBackButton}
+            onPress={() => {
+              if (typeof onBack === 'function') {
+                onBack();
+              }
+            }}
+            activeOpacity={0.85}>
+            <Text style={styles.headerBackButtonText}>← Natrag</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.title}>🌱 ALR kalkulator</Text>
+        <Text style={styles.subtitle}>
+          Pregledniji unos kroz padajuće izbornike i grupirane kartice.
+        </Text>
+      </View>
+
+      <View style={styles.tabs}>
+        {[
+          { key: 'unos', label: 'Unos' },
+          { key: 'rezultat', label: 'Rezultat' },
+          { key: 'spremljeno', label: 'Spremljeno' },
+        ].map((tab) => {
+          const active = tab.key === activeTab;
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.tabBtn, active && styles.tabBtnActive]}
+              onPress={() => setActiveTab(tab.key)}>
+              <Text style={[styles.tabText, active && styles.tabTextActive]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {activeTab === 'unos' && (
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <SectionCard title="Osnovni podaci" subtitle="Odaberi osnovne podatke za parcelu i kulturu.">
+            <SelectField
+              label="Regija"
+              value={optionLabel(REGIONS, form.regija)}
+              placeholder="Odaberi regiju"
+              onPress={() => openSelect('regija', 'Odaberi regiju', REGIONS)}
+            />
+            <InputField
+              label="Katastarska općina"
+              value={form.katastarska}
+              onChangeText={(v) => updateField('katastarska', v)}
+              placeholder="npr. Cerna"
+            />
+            <InputField
+              label="ARKOD / katastarska čestica"
+              value={form.parcela}
+              onChangeText={(v) => updateField('parcela', v)}
+              placeholder="npr. 123456"
+            />
+            <SelectField
+              label="Kultura"
+              value={optionLabel(FIELD_CROPS, form.kultura)}
+              placeholder="Odaberi kulturu"
+              onPress={() => openSelect('kultura', 'Odaberi kulturu', FIELD_CROPS)}
+            />
+            <SelectField
+              label="Sljedeća kultura"
+              value={optionLabel(FIELD_CROPS, form.nextCrop)}
+              placeholder="Odaberi sljedeću kulturu"
+              onPress={() => openSelect('nextCrop', 'Odaberi sljedeću kulturu', FIELD_CROPS)}
+            />
+          </SectionCard>
+
+          <SectionCard title="Proizvodnja" subtitle="Podaci o površini, prinosu i proizvodnim uvjetima.">
+            <View style={styles.row2}>
+              <View style={styles.col2}>
+                <InputField
+                  label="Površina (ha)"
+                  value={form.povrsina}
+                  onChangeText={(v) => updateField('povrsina', v)}
+                  placeholder="npr. 12.5"
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <View style={styles.col2}>
+                <InputField
+                  label="Prinos (t/ha)"
+                  value={form.prinos}
+                  onChangeText={(v) => updateField('prinos', v)}
+                  placeholder="npr. 7.2"
+                  keyboardType="decimal-pad"
+                />
+              </View>
+            </View>
+
+            <SelectField
+              label="Slama"
+              value={optionLabel(STRAW_OPTIONS, form.slama)}
+              placeholder="Odaberi način postupanja sa slamom"
+              onPress={() => openSelect('slama', 'Odaberi slamu', STRAW_OPTIONS)}
+            />
+            <SelectField
+              label="Predusjev"
+              value={optionLabel(PREDCROPS, form.predusjev)}
+              placeholder="Odaberi predusjev"
+              onPress={() => openSelect('predusjev', 'Odaberi predusjev', PREDCROPS)}
+            />
+            <SelectField
+              label="Tip tla"
+              value={optionLabel(SOILS, form.tlo)}
+              placeholder="Odaberi tip tla"
+              onPress={() => openSelect('tlo', 'Odaberi tip tla', SOILS)}
+            />
+            <InputField
+              label="pH (KCl)"
+              value={form.ph}
+              onChangeText={(v) => updateField('ph', v)}
+              placeholder="npr. 6.5"
+              keyboardType="decimal-pad"
+            />
+          </SectionCard>
+
+          <SectionCard title="Analiza tla" subtitle="Odaberi unos po klasama ili laboratorijski nalaz.">
+            <SelectField
+              label="Način određivanja P/K"
+              value={optionLabel(MODE_OPTIONS, form.mode)}
+              placeholder="Odaberi način"
+              onPress={() => openSelect('mode', 'Način određivanja P/K', MODE_OPTIONS)}
+            />
+
+            {form.mode === 'klase' ? (
+              <View style={styles.row2}>
+                <View style={styles.col2}>
+                  <SelectField
+                    label="Klasa P (P₂O₅)"
+                    value={optionLabel(CLASSES, form.klasaP)}
+                    placeholder="Odaberi klasu P"
+                    onPress={() => openSelect('klasaP', 'Odaberi klasu P', CLASSES)}
+                  />
+                </View>
+                <View style={styles.col2}>
+                  <SelectField
+                    label="Klasa K (K₂O)"
+                    value={optionLabel(CLASSES, form.klasaK)}
+                    placeholder="Odaberi klasu K"
+                    onPress={() => openSelect('klasaK', 'Odaberi klasu K', CLASSES)}
+                  />
+                </View>
+              </View>
+            ) : (
+              <View style={styles.row2}>
+                <View style={styles.col2}>
+                  <InputField
+                    label="P₂O₅ (mg/100 g)"
+                    value={form.p_lab}
+                    onChangeText={(v) => updateField('p_lab', v)}
+                    placeholder="npr. 15"
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+                <View style={styles.col2}>
+                  <InputField
+                    label="K₂O (mg/100 g)"
+                    value={form.k_lab}
+                    onChangeText={(v) => updateField('k_lab', v)}
+                    placeholder="npr. 25"
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+              </View>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Dodatne opcije">
+            <View style={styles.switchRow}>
+              <Text style={styles.label}>Računaj i S (SO₃)</Text>
+              <Switch
+                value={form.withS}
+                onValueChange={(v) => updateField('withS', v)}
+              />
+            </View>
+          </SectionCard>
+
+          <SectionCard title={`Plan po fazama — ${niceCrop(form.kultura)}`} subtitle="Informativni pregled preporuka kroz sezonu.">
+            {calendarPreview.length ? (
+              calendarPreview.map((item, index) => (
+                <View
+                  key={`${item.mjesec}_${index}`}
+                  style={styles.timelineRow}>
+                  <Text style={styles.timelineMonth}>{item.mjesec}</Text>
+                  <Text style={styles.timelineText}>
+                    {item.faza} — {item.preporuka}
+                  </Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.muted}>Nema unosa za odabranu kulturu.</Text>
+            )}
+          </SectionCard>
+
+          <View style={styles.actionRow}>
+            <TouchableOpacity
+              style={styles.primaryBtn}
+              onPress={handleCalculate}>
+              <Text style={styles.primaryBtnText}>Izračunaj</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.ghostBtn} onPress={handleReset}>
+              <Text style={styles.ghostBtnText}>Reset</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      )}
+
+      {activeTab === 'rezultat' && (
+        <ScrollView contentContainerStyle={styles.content}>
+          {!calculation ? (
+            <View style={styles.card}>
+              <Text style={styles.muted}>Prvo napravi izračun.</Text>
+            </View>
+          ) : (
+            <>
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>
+                  {niceCrop(calculation.input.kultura)}
+                </Text>
+                <Text style={styles.muted}>
+                  {regionLabel(calculation.input.regija)} •{' '}
+                  {calculation.input.povrsina} ha • {calculation.input.prinos}{' '}
+                  t/ha
+                </Text>
+              </View>
+
+              <ResultTable rows={nutrientRows} />
+              <PlanCard
+                title="Prijedlog formulacija — Plan A"
+                items={calculation.result.planA}
+                area={calculation.result.area}
+              />
+              <PlanCard
+                title="Alternativa — Plan B"
+                items={calculation.result.planB}
+                area={calculation.result.area}
+              />
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Obrazloženje</Text>
+                <Text style={styles.textBlock}>
+                  {calculation.narrative.classExpl}
+                </Text>
+                {(calculation.narrative.bullets || []).map((item, index) => (
+                  <Text key={`${item}_${index}`} style={styles.bullet}>
+                    • {item}
+                  </Text>
+                ))}
+              </View>
+
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Kalendari gnojidbe</Text>
+                <Text style={styles.subHeading}>Aktualna kultura</Text>
+                <Text style={styles.textBlock}>
+                  {calculation.calendars.current || '—'}
+                </Text>
+                <Text style={styles.subHeading}>Sljedeća kultura</Text>
+                <Text style={styles.textBlock}>
+                  {calculation.calendars.next || '—'}
+                </Text>
+              </View>
+
+              <View style={styles.actionGrid}>
+                <TouchableOpacity
+                  style={styles.primaryBtn}
+                  onPress={handleSave}>
+                  <Text style={styles.primaryBtnText}>Spremi</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.ghostBtn}
+                  onPress={handleCurrentPdf}
+                  disabled={busy}>
+                  <Text style={styles.ghostBtnText}>
+                    {busy ? 'Generiram…' : 'PDF'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </ScrollView>
+      )}
+
+      {activeTab === 'spremljeno' && (
+        <FlatList
+          data={savedItems}
+          keyExtractor={(item) => item.id}
+          contentContainerStyle={styles.content}
+          ListEmptyComponent={
+            <View style={styles.card}>
+              <Text style={styles.muted}>Nema spremljenih izračuna.</Text>
+            </View>
+          }
+          renderItem={({ item }) => (
+            <SavedCard
+              item={item}
+              onLoad={handleLoadSaved}
+              onExportPdf={exportPdf}
+              onDelete={handleDeleteSaved}
+            />
+          )}
+        />
+      )}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: '#f6f8fb' },
+  topCard: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 10,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  headerBackButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#eef6df',
+    borderWidth: 1,
+    borderColor: '#d7e7b4',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 14,
+  },
+  headerBackButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#5b7b17',
+  },
+  title: { fontSize: 24, fontWeight: '800', color: '#1f2937' },
+  subtitle: { marginTop: 6, fontSize: 13, color: '#64748b' },
+  tabs: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    gap: 8,
+  },
+  tabBtn: {
+    flex: 1,
+    paddingVertical: 11,
+    alignItems: 'center',
+    borderRadius: 12,
+    backgroundColor: '#e2e8f0',
+  },
+  tabBtnActive: { backgroundColor: '#7fa52a' },
+  tabText: { color: '#334155', fontWeight: '700' },
+  tabTextActive: { color: '#fff' },
+  content: { padding: 16, gap: 14 },
+  fieldBlock: { gap: 8, marginBottom: 12 },
+  label: { fontSize: 13, color: '#475569', fontWeight: '700' },
+  input: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dbe2ea',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: '#0f172a',
+  },
+  selectField: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dbe2ea',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  selectValue: {
+    color: '#0f172a',
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
+    paddingRight: 10,
+  },
+  selectPlaceholder: {
+    color: '#94a3b8',
+    fontSize: 14,
+    flex: 1,
+    paddingRight: 10,
+  },
+  selectArrow: {
+    fontSize: 18,
+    color: '#64748b',
+    marginTop: -2,
+  },
+  row2: { flexDirection: 'row', gap: 12 },
+  col2: { flex: 1 },
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#dbe2ea',
+  },
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  cardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#1f2937',
+    marginBottom: 8,
+  },
+  cardSubtitle: {
+    fontSize: 12,
+    color: '#64748b',
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  muted: { color: '#64748b', lineHeight: 20 },
+  tableHeader: {
+    flexDirection: 'row',
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  th: { flex: 1, fontWeight: '800', color: '#475569', fontSize: 12 },
+  td: { flex: 1, color: '#111827', fontSize: 13 },
+  planRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  planName: { color: '#111827', fontWeight: '700' },
+  planMeta: { color: '#64748b', marginTop: 2 },
+  planTotal: { color: '#355d08', fontWeight: '800' },
+  timelineRow: {
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef2f7',
+  },
+  timelineMonth: { color: '#355d08', fontWeight: '800', marginBottom: 4 },
+  timelineText: { color: '#334155', lineHeight: 20 },
+  actionRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  actionGrid: { flexDirection: 'row', gap: 10 },
+  primaryBtn: {
+    flex: 1,
+    backgroundColor: '#7fa52a',
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  primaryBtnText: { color: '#fff', fontWeight: '800' },
+  ghostBtn: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dbe2ea',
+    borderRadius: 14,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  ghostBtnText: { color: '#0f172a', fontWeight: '800' },
+  textBlock: { color: '#334155', lineHeight: 21 },
+  bullet: { color: '#334155', lineHeight: 21, marginTop: 6 },
+  subHeading: {
+    marginTop: 10,
+    marginBottom: 6,
+    color: '#355d08',
+    fontWeight: '800',
+  },
+  savedCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginBottom: 12,
+  },
+  savedTitle: { fontSize: 15, fontWeight: '800', color: '#1f2937' },
+  savedMeta: { color: '#64748b', marginTop: 4 },
+  savedActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+    flexWrap: 'wrap',
+  },
+  smallBtn: {
+    backgroundColor: '#7fa52a',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  smallBtnText: { color: '#fff', fontWeight: '800' },
+  smallBtnGhost: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#dbe2ea',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  smallBtnGhostText: { color: '#0f172a', fontWeight: '800' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.35)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  modalList: {
+    maxHeight: 360,
+  },
+  modalOption: {
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eef2f7',
+  },
+  modalOptionActive: {
+    backgroundColor: '#eef6df',
+    borderRadius: 10,
+  },
+  modalOptionText: {
+    fontSize: 15,
+    color: '#1f2937',
+  },
+  modalOptionTextActive: {
+    color: '#355d08',
+    fontWeight: '800',
+  },
+  modalCloseBtn: {
+    marginTop: 14,
+    backgroundColor: '#7fa52a',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  modalCloseBtnText: {
+    color: '#fff',
+    fontWeight: '800',
+  },
+});

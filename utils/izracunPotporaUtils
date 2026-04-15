@@ -1,0 +1,338 @@
+export const ANC_PRAGOVI = {
+  gpp: [
+    { doHa: 20, tarifa: 291 },
+    { doHa: 100, tarifa: 237 },
+    { doHa: Infinity, tarifa: 178 },
+  ],
+  zpo: [
+    { doHa: 20, tarifa: 144 },
+    { doHa: 100, tarifa: 117 },
+    { doHa: Infinity, tarifa: 88 },
+  ],
+  ppo: [
+    { doHa: 20, tarifa: 114 },
+    { doHa: 100, tarifa: 93 },
+    { doHa: Infinity, tarifa: 70 },
+  ],
+};
+
+export const SEKCIJE_POTPORA = [
+  {
+    key: 'eko',
+    naslov: 'EKO SHEME',
+    boja: '#eef6df',
+    polja: [
+      { key: 'eko_prih_ha', sifra: '', naziv: 'Prihvatljiva povrsina', jedinica: 'ha', tarifaTip: 'custom', tarifaKey: 'vrijed_prava', tarifaLabel: 'Vrijednost prava' },
+      { key: 'vrijed_prava', sifra: '', naziv: 'Vrijednost prava', jedinica: '€/ha', unosTarife: true },
+      { key: 'prerasp', sifra: 'PRERASP', naziv: 'Preraspodijeljeno placanje', jedinica: 'ha', tarifa: 100, tarifaJedinica: '€/ha' },
+      { key: 'mladi', sifra: '', naziv: 'Mladi poljoprivrednik', jedinica: 'ha', tarifa: 105, tarifaJedinica: '€/ha' },
+
+      { key: 't3101', sifra: '31.01', naziv: 'Intenzivirana raznolikost', jedinica: 'ha', tarifa: 65, tarifaJedinica: '€/ha' },
+      { key: 'iz3102', sifra: '31.02', naziv: 'Ekstenzivno gospodarenje pasnjacima', jedinica: 'ha', tarifa: 100, tarifaJedinica: '€/ha' },
+      { key: 't3103', sifra: '31.03', naziv: 'Intenzivirano odrzavanje EZP', jedinica: 'ha', tarifa: 130, tarifaJedinica: '€/ha' },
+
+      {
+        key: 'ha3104',
+        sifra: '31.04',
+        naziv: 'Uporaba stajskog gnoja',
+        jedinica: 'ha',
+        tarifaTip: 'select',
+        tarifaSelectKey: 'r3104',
+        opcijeTarife: [
+          { value: '', label: '— Odaberi —', tarifa: 0 },
+          { value: 'ostala', label: 'Ostala podrucja', tarifa: 215 },
+          { value: 'nitrati', label: 'Ranjiva na nitrate', tarifa: 169 },
+        ],
+      },
+      {
+        key: 'ha3105',
+        sifra: '31.05',
+        naziv: 'Minimalni udio leguminoza',
+        jedinica: 'ha',
+        tarifaTip: 'select',
+        tarifaSelectKey: 'r3105',
+        opcijeTarife: [
+          { value: '', label: '— Odaberi —', tarifa: 0 },
+          { value: 'konvencionalni', label: 'Konvencionalni', tarifa: 161 },
+          { value: 'kombinacija_3104', label: 'Kombinacija s 31.04', tarifa: 117 },
+          { value: 'ekoloski', label: 'Ekološki', tarifa: 119 },
+          { value: 'pcelinje_pase', label: 'Ekološke pčelinje paše', tarifa: 93 },
+        ],
+      },
+      { key: 'iz3106', sifra: '31.06', naziv: 'Konzervacijska poljoprivreda', jedinica: 'ha', tarifa: 250, tarifaJedinica: '€/ha' },
+      {
+        key: 'ha3107',
+        sifra: '31.07',
+        naziv: 'TVPV',
+        jedinica: 'ha',
+        tarifaTip: 'select',
+        tarifaSelectKey: 'r3107',
+        opcijeTarife: [
+          { value: '', label: '— Odaberi —', tarifa: 0 },
+          { value: 'bp', label: 'BP', tarifa: 255 },
+          { value: 'kontinentalna', label: 'Kontinentalna', tarifa: 361 },
+          { value: 'mediteranska', label: 'Mediteranska', tarifa: 113 },
+        ],
+      },
+    ],
+  },
+  {
+    key: 'koi',
+    naslov: 'Klimatsko okolinske intervencije (KOI)',
+    boja: '#eef2ff',
+    polja: [
+      { key: 'koi_0', sifra: '70.01.01', naziv: 'Klopke', jedinica: 'ha', tarifa: 293, tarifaJedinica: '€/ha' },
+      { key: 'koi_1', sifra: '70.01.02', naziv: 'Metoda konfuzije', jedinica: 'ha', tarifa: 359, tarifaJedinica: '€/ha' },
+      { key: 'koi_2', sifra: '70.01.03', naziv: 'Mehanicko unistavanje korova', jedinica: 'ha', tarifa: 373, tarifaJedinica: '€/ha' },
+      { key: 'koi_3', sifra: '70.02.01', naziv: 'Zastita ptice kosca', jedinica: 'ha', tarifa: 254, tarifaJedinica: '€/ha' },
+      { key: 'koi_4', sifra: '70.02.02', naziv: 'Mocvarni okas', jedinica: 'ha', tarifa: 338, tarifaJedinica: '€/ha' },
+      { key: 'koi_5', sifra: '70.02.02', naziv: 'Veliki / zagasiti livadni / mocvarni plavac', jedinica: 'ha', tarifa: 277, tarifaJedinica: '€/ha' },
+      { key: 'koi_6', sifra: '70.02.03.01', naziv: 'Cvjetne trake', jedinica: 'ha', tarifa: 985, tarifaJedinica: '€/ha' },
+      { key: 'koi_7', sifra: '70.02.03.02', naziv: 'Travne trake', jedinica: 'ha', tarifa: 898, tarifaJedinica: '€/ha' },
+      { key: 'koi_8', sifra: '70.04.01/07', naziv: 'Ekološki uzgoj - oranice', jedinica: 'ha', tarifa: 235, tarifaJedinica: '€/ha' },
+      { key: 'koi_9', sifra: '70.04.02/08', naziv: 'Ekološki uzgoj - orah, lijeska', jedinica: 'ha', tarifa: 516, tarifaJedinica: '€/ha' },
+      { key: 'koi_10', sifra: '70.04.03/09', naziv: 'Ekološki uzgoj - masline, vinova loza', jedinica: 'ha', tarifa: 754, tarifaJedinica: '€/ha' },
+      { key: 'koi_11', sifra: '70.04.04/10', naziv: 'Ekološki uzgoj - ostalo voće', jedinica: 'ha', tarifa: 1074, tarifaJedinica: '€/ha' },
+      { key: 'koi_12', sifra: '70.04.05/11', naziv: 'Ekološki uzgoj - trajni travnjaci', jedinica: 'ha', tarifa: 157, tarifaJedinica: '€/ha' },
+      { key: 'koi_13', sifra: '70.04.06/12', naziv: 'Ekološki uzgoj - povrće', jedinica: 'ha', tarifa: 480, tarifaJedinica: '€/ha' },
+      { key: 'koi_14', sifra: '70.07.01', naziv: 'Ocuvanje suhozida', jedinica: 'm', tarifa: 0.74, tarifaJedinica: '€/m' },
+      { key: 'koi_15', sifra: '70.07.02', naziv: 'Ocuvanje zivica', jedinica: 'm', tarifa: 0.36, tarifaJedinica: '€/m' },
+      { key: 'koi_16', sifra: '70.08.01', naziv: 'Ocuvanje ekstenzivnih vocnjaka', jedinica: 'ha', tarifa: 450, tarifaJedinica: '€/ha' },
+      { key: 'koi_17', sifra: '70.08.02', naziv: 'Ocuvanje ekstenzivnih maslinika', jedinica: 'ha', tarifa: 804, tarifaJedinica: '€/ha' },
+      { key: 'koi_19', sifra: '71.01.01', naziv: 'GPP', jedinica: 'ha', tarifaTip: 'anc', ancVrsta: 'gpp' },
+      { key: 'koi_22', sifra: '71.01.02', naziv: 'ZPO', jedinica: 'ha', tarifaTip: 'anc', ancVrsta: 'zpo' },
+      { key: 'koi_25', sifra: '71.01.03', naziv: 'PPO', jedinica: 'ha', tarifaTip: 'anc', ancVrsta: 'ppo' },
+    ],
+  },
+  {
+    key: 'pvp',
+    naslov: 'Proizvodno vezana placanja (PVP)',
+    boja: '#fff7ed',
+    polja: [
+      { key: 'pvp_0', sifra: '32.01.01', naziv: 'Krave u proizvodnji mlijeka', jedinica: 'jed.', tarifa: 247, tarifaJedinica: '€/jed.' },
+      { key: 'pvp_1', sifra: '32.01.02', naziv: 'Prvotelke', jedinica: 'jed.', tarifa: 342, tarifaJedinica: '€/jed.' },
+      { key: 'pvp_2', sifra: '32.02', naziv: 'Tovna junad', jedinica: 'jed.', tarifa: 80, tarifaJedinica: '€/jed.' },
+      { key: 'pvp_3', sifra: '32.03', naziv: 'Krave dojilje', jedinica: 'jed.', tarifa: 98, tarifaJedinica: '€/jed.' },
+      { key: 'pvp_4', sifra: '32.04', naziv: 'Ovce i koze', jedinica: 'jed.', tarifa: 7, tarifaJedinica: '€/jed.' },
+      { key: 'pvp_7', sifra: '32.07', naziv: 'Secerna repa', jedinica: 'ha', tarifa: 405, tarifaJedinica: '€/ha' },
+      { key: 'pvp_8', sifra: '32.08', naziv: 'Krmno proteinski usjevi', jedinica: 'ha', tarifa: 186, tarifaJedinica: '€/ha' },
+      { key: 'pvp_9', sifra: '32.09', naziv: 'Sjemenska proizvodnja', jedinica: 'ha', tarifa: 500, tarifaJedinica: '€/ha' },
+    ],
+  },
+];
+
+export const POCETNE_VRIJEDNOSTI = {
+  obr_ha: '',
+  vodotok_m: '',
+  sume_m: '',
+  jarak_m: '',
+  sumarak_m2: '',
+  ugar_ha: '',
+  legum_ha: '',
+
+  eko_prih_ha: '',
+  vrijed_prava: '130',
+  prerasp: '',
+  mladi: '',
+  t3101: '',
+  iz3102: '',
+  t3103: '',
+  r3104: '',
+  ha3104: '',
+  r3105: '',
+  ha3105: '',
+  iz3106: '',
+  r3107: '',
+  ha3107: '',
+
+  koi_0: '',
+  koi_1: '',
+  koi_2: '',
+  koi_3: '',
+  koi_4: '',
+  koi_5: '',
+  koi_6: '',
+  koi_7: '',
+  koi_8: '',
+  koi_9: '',
+  koi_10: '',
+  koi_11: '',
+  koi_12: '',
+  koi_13: '',
+  koi_14: '',
+  koi_15: '',
+  koi_16: '',
+  koi_17: '',
+  koi_19: '',
+  koi_22: '',
+  koi_25: '',
+
+  pvp_0: '',
+  pvp_1: '',
+  pvp_2: '',
+  pvp_3: '',
+  pvp_4: '',
+  pvp_7: '',
+  pvp_8: '',
+  pvp_9: '',
+};
+
+export function uBroj(vrijednost) {
+  if (vrijednost === '' || vrijednost == null) return 0;
+  const broj = Number(String(vrijednost).replace(',', '.'));
+  return Number.isFinite(broj) ? broj : 0;
+}
+
+export function formatEur(vrijednost) {
+  return new Intl.NumberFormat('hr-HR', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Math.round(vrijednost || 0)) + ' €';
+}
+
+export function formatPostotak(vrijednost) {
+  return new Intl.NumberFormat('hr-HR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(vrijednost || 0) + ' %';
+}
+
+export function formatTarifa(vrijednost, jedinica = '€/ha') {
+  if (!vrijednost) return '—';
+  return `${new Intl.NumberFormat('hr-HR', {
+    minimumFractionDigits: vrijednost % 1 ? 2 : 0,
+    maximumFractionDigits: vrijednost % 1 ? 2 : 0,
+  }).format(vrijednost)} ${jedinica}`;
+}
+
+export function izracunajAncIznos(povrsina, pragovi) {
+  let preostalo = uBroj(povrsina);
+  let prethodniLimit = 0;
+  let ukupno = 0;
+
+  for (const prag of pragovi) {
+    if (preostalo <= 0) break;
+    const raspon = prag.doHa === Infinity ? preostalo : Math.min(preostalo, prag.doHa - prethodniLimit);
+    ukupno += raspon * prag.tarifa;
+    preostalo -= raspon;
+    prethodniLimit = prag.doHa;
+  }
+
+  return ukupno;
+}
+
+export function ancProsjecnaTarifa(vrsta, povrsina) {
+  const ha = uBroj(povrsina);
+  if (!ha) return 0;
+  const pragovi = ANC_PRAGOVI[vrsta] || [];
+  return izracunajAncIznos(ha, pragovi) / ha;
+}
+
+export function dohvatiTarifu(polje, vrijednosti) {
+  if (polje.unosTarife) {
+    return uBroj(vrijednosti[polje.key]);
+  }
+
+  if (polje.tarifaTip === 'custom' && polje.tarifaKey) {
+    return uBroj(vrijednosti[polje.tarifaKey]);
+  }
+
+  if (polje.tarifaTip === 'select') {
+    const odabrano = vrijednosti[polje.tarifaSelectKey];
+    const opcija = (polje.opcijeTarife || []).find((item) => item.value === odabrano);
+    return opcija?.tarifa || 0;
+  }
+
+  if (polje.tarifaTip === 'anc') {
+    return ancProsjecnaTarifa(polje.ancVrsta, vrijednosti[polje.key]);
+  }
+
+  return polje.tarifa || 0;
+}
+
+export function izracunajIznosPolja(polje, vrijednosti) {
+  if (polje.unosTarife) return 0;
+
+  const kolicina = uBroj(vrijednosti[polje.key]);
+  const tarifa = dohvatiTarifu(polje, vrijednosti);
+
+  if (polje.tarifaTip === 'custom' && polje.tarifaKey) {
+    return uBroj(vrijednosti[polje.key]) * tarifa;
+  }
+
+  if (polje.tarifaTip === 'anc') {
+    return izracunajAncIznos(kolicina, ANC_PRAGOVI[polje.ancVrsta] || []);
+  }
+
+  return kolicina * tarifa;
+}
+
+export function izracunajSekcije(vrijednosti) {
+  const rezultat = {};
+  let ukupno = 0;
+
+  for (const sekcija of SEKCIJE_POTPORA) {
+    let zbrojSekcije = 0;
+    const polja = sekcija.polja.map((polje) => {
+      const iznos = izracunajIznosPolja(polje, vrijednosti);
+      zbrojSekcije += iznos;
+      return {
+        ...polje,
+        tarifaAktivna: dohvatiTarifu(polje, vrijednosti),
+        iznos,
+      };
+    });
+
+    rezultat[sekcija.key] = {
+      ...sekcija,
+      polja,
+      zbroj: zbrojSekcije,
+    };
+
+    ukupno += zbrojSekcije;
+  }
+
+  return {
+    sekcije: rezultat,
+    ukupno,
+  };
+}
+export function izracunajEzpPostotak(vrijednosti) {
+  const obrHa = uBroj(vrijednosti.obr_ha);
+  if (!obrHa) return 0;
+
+  const numerator =
+    (uBroj(vrijednosti.vodotok_m) * 15) +
+    (uBroj(vrijednosti.sume_m) * 9) +
+    (uBroj(vrijednosti.jarak_m) * 10) +
+    (uBroj(vrijednosti.sumarak_m2) * 1.5);
+
+  return numerator / (obrHa * 100);
+}
+
+export function izracunajUvjetovanostPostotak(vrijednosti) {
+  const obrHa = uBroj(vrijednosti.obr_ha);
+  if (!obrHa) return 0;
+
+  const numerator =
+    (uBroj(vrijednosti.vodotok_m) * 15) +
+    (uBroj(vrijednosti.sume_m) * 9) +
+    (uBroj(vrijednosti.jarak_m) * 10) +
+    (uBroj(vrijednosti.sumarak_m2) * 1.5) +
+    (uBroj(vrijednosti.ugar_ha) * 10000) +
+    (uBroj(vrijednosti.legum_ha) * 10000);
+
+  return numerator / (obrHa * 100);
+}
+
+export function izracunajSvePotpore(vrijednosti) {
+  const sekcijeRezultat = izracunajSekcije(vrijednosti);
+  const ezpPostotak = izracunajEzpPostotak(vrijednosti);
+  const uvjetovanostPostotak = izracunajUvjetovanostPostotak(vrijednosti);
+
+  return {
+    ...sekcijeRezultat,
+    ezpPostotak,
+    uvjetovanostPostotak,
+  };
+}
